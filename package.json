@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "publisher": "dom",
   "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/dom8509/vscode-github-extension-manager.git" },
   "engines": {
     "vscode": "^1.85.0"
   },
