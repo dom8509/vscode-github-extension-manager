@@ -4,6 +4,15 @@ Install VS Code extensions straight from a GitHub repo, keep track of them, and 
 
 It uses the repo's **GitHub Releases**: the newest release must contain a `.vsix` file.
 
+## Sidebar
+
+Click the **GitHub Extensions** icon in the Activity Bar (left side). You see all tracked extensions:
+
+- Green arrow = update available (`old tag → new tag`). The icon shows a badge with the number of updates.
+- Warning sign = tracked, but not installed in this VS Code.
+- Top buttons: install from URL, check for updates, update all, refresh.
+- Per extension (hover or right-click): update, open releases, reinstall, stop tracking, uninstall.
+
 ## Commands (Cmd+Shift+P)
 
 | Command | What it does |

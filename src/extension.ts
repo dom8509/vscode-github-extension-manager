@@ -25,6 +25,10 @@ interface UpdateInfo {
 
 let ctx: vscode.ExtensionContext;
 let out: vscode.OutputChannel;
+let tree: TrackedTreeProvider;
+let treeView: vscode.TreeView<TrackedItem>;
+/** Latest known newer release per extId (filled by update checks). */
+const pendingUpdates = new Map<string, Release>();
 
 function cfg<T>(key: string, def: T): T {
   return vscode.workspace.getConfiguration('ghext').get<T>(key, def);
@@ -38,6 +42,12 @@ function getTracked(): Record<string, Tracked> {
 }
 async function setTracked(t: Record<string, Tracked>): Promise<void> {
   await ctx.globalState.update(STATE_KEY, t);
+  for (const id of [...pendingUpdates.keys()]) {
+    if (!t[id]) {
+      pendingUpdates.delete(id);
+    }
+  }
+  refreshView();
 }
 function log(msg: string): void {
   out.appendLine(`[${new Date().toLocaleTimeString()}] ${msg}`);
@@ -86,6 +96,7 @@ async function installRelease(ref: RepoRef, release: Release, progress?: vscode.
   };
   const all = getTracked();
   all[tracked.extId] = tracked;
+  pendingUpdates.delete(tracked.extId);
   await setTracked(all);
   return tracked;
 }
@@ -137,11 +148,15 @@ async function findUpdates(): Promise<{ updates: UpdateInfo[]; errors: string[] 
       const release = await fetchLatestRelease(ref, cfg('includePrereleases', false), token());
       if (release && release.tag_name !== t.tag && compareVersions(release.tag_name, t.tag) > 0) {
         updates.push({ tracked: t, release });
+        pendingUpdates.set(t.extId, release);
+      } else {
+        pendingUpdates.delete(t.extId);
       }
     } catch (e: any) {
       errors.push(`${t.repo}: ${e?.message || e}`);
     }
   }));
+  refreshView();
   return { updates, errors };
 }
 
@@ -223,12 +238,71 @@ async function cmdUpdateAll(): Promise<void> {
   await applyUpdates(updates);
 }
 
-async function cmdList(): Promise<void> {
+/* ---------- per-extension actions (used by tree view and quick pick) ---------- */
+
+function showError(e: any): void {
+  log(`ERROR: ${e?.message || e}`);
+  vscode.window.showErrorMessage(`GitHub Ext: ${e?.message || e}`);
+}
+
+async function updateOne(t: Tracked): Promise<void> {
+  const release = await fetchLatestRelease(parseRepoUrl(t.repo)!, cfg('includePrereleases', false), token());
+  if (!release || compareVersions(release.tag_name, t.tag) <= 0) {
+    pendingUpdates.delete(t.extId);
+    refreshView();
+    vscode.window.showInformationMessage(`${t.displayName} is up to date (${t.tag}).`);
+  } else {
+    await applyUpdates([{ tracked: t, release }]);
+  }
+}
+
+async function reinstallOne(t: Tracked): Promise<void> {
+  const ref = parseRepoUrl(t.repo)!;
+  const release = await fetchLatestRelease(ref, cfg('includePrereleases', false), token());
+  if (!release) {
+    throw new Error('No release found.');
+  }
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: `GitHub Ext: reinstalling ${t.displayName}` },
+    p => installRelease(ref, release, p)
+  );
+  vscode.window.showInformationMessage(`Reinstalled ${t.displayName} ${release.tag_name}.`);
+}
+
+function openRepo(t: Tracked): void {
+  vscode.env.openExternal(vscode.Uri.parse(`https://github.com/${t.repo}/releases`));
+}
+
+async function untrackOne(t: Tracked): Promise<void> {
   const all = getTracked();
-  const items = Object.values(all).sort((a, b) => a.displayName.localeCompare(b.displayName));
+  delete all[t.extId];
+  await setTracked(all);
+  vscode.window.showInformationMessage(`${t.displayName} is no longer tracked.`);
+}
+
+async function uninstallOne(t: Tracked): Promise<void> {
+  const ok = await vscode.window.showWarningMessage(
+    `Uninstall ${t.displayName} and stop tracking it?`, { modal: true }, 'Uninstall'
+  );
+  if (ok !== 'Uninstall') {
+    return;
+  }
+  await vscode.commands.executeCommand('workbench.extensions.uninstallExtension', t.extId);
+  const all = getTracked();
+  delete all[t.extId];
+  await setTracked(all);
+  vscode.window.showInformationMessage(`${t.displayName} uninstalled.`);
+}
+
+/** Resolve the target of an item command: tree item if given, otherwise ask. */
+async function resolveTarget(arg?: TrackedItem): Promise<Tracked | undefined> {
+  if (arg?.tracked) {
+    return getTracked()[arg.tracked.extId] ?? arg.tracked;
+  }
+  const items = Object.values(getTracked()).sort((a, b) => a.displayName.localeCompare(b.displayName));
   if (items.length === 0) {
     vscode.window.showInformationMessage('GitHub Ext: nothing tracked yet.');
-    return;
+    return undefined;
   }
   const pick = await vscode.window.showQuickPick(
     items.map(t => ({
@@ -239,66 +313,105 @@ async function cmdList(): Promise<void> {
     })),
     { placeHolder: 'Tracked extensions – pick one to manage' }
   );
-  if (!pick) {
+  return pick?.t;
+}
+
+function itemCommand(fn: (t: Tracked) => unknown): (arg?: TrackedItem) => Promise<void> {
+  return async arg => {
+    const t = await resolveTarget(arg);
+    if (!t) {
+      return;
+    }
+    try {
+      await fn(t);
+    } catch (e: any) {
+      showError(e);
+    }
+  };
+}
+
+async function cmdList(): Promise<void> {
+  const t = await resolveTarget();
+  if (!t) {
     return;
   }
-  const t = pick.t;
   const action = await vscode.window.showQuickPick(
     [
-      { label: '$(sync) Check & update this one', id: 'update' },
-      { label: '$(cloud-download) Reinstall latest release', id: 'reinstall' },
-      { label: '$(github) Open GitHub repo', id: 'open' },
-      { label: '$(eye-closed) Stop tracking (keep extension)', id: 'untrack' },
-      { label: '$(trash) Uninstall extension & stop tracking', id: 'uninstall' }
+      { label: '$(sync) Check & update this one', fn: updateOne },
+      { label: '$(cloud-download) Reinstall latest release', fn: reinstallOne },
+      { label: '$(github) Open GitHub repo', fn: openRepo },
+      { label: '$(eye-closed) Stop tracking (keep extension)', fn: untrackOne },
+      { label: '$(trash) Uninstall extension & stop tracking', fn: uninstallOne }
     ],
     { placeHolder: t.displayName }
   );
   if (!action) {
     return;
   }
-  const ref = parseRepoUrl(t.repo)!;
   try {
-    switch (action.id) {
-      case 'update': {
-        const release = await fetchLatestRelease(ref, cfg('includePrereleases', false), token());
-        if (!release || compareVersions(release.tag_name, t.tag) <= 0) {
-          vscode.window.showInformationMessage(`${t.displayName} is up to date (${t.tag}).`);
-        } else {
-          await applyUpdates([{ tracked: t, release }]);
-        }
-        break;
-      }
-      case 'reinstall': {
-        const release = await fetchLatestRelease(ref, cfg('includePrereleases', false), token());
-        if (!release) {
-          throw new Error('No release found.');
-        }
-        await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: `GitHub Ext: reinstalling ${t.displayName}` },
-          p => installRelease(ref, release, p)
-        );
-        vscode.window.showInformationMessage(`Reinstalled ${t.displayName} ${release.tag_name}.`);
-        break;
-      }
-      case 'open':
-        vscode.env.openExternal(vscode.Uri.parse(`https://github.com/${t.repo}/releases`));
-        break;
-      case 'untrack':
-        delete all[t.extId];
-        await setTracked(all);
-        vscode.window.showInformationMessage(`${t.displayName} is no longer tracked.`);
-        break;
-      case 'uninstall':
-        await vscode.commands.executeCommand('workbench.extensions.uninstallExtension', t.extId);
-        delete all[t.extId];
-        await setTracked(all);
-        vscode.window.showInformationMessage(`${t.displayName} uninstalled.`);
-        break;
-    }
+    await action.fn(t);
   } catch (e: any) {
-    log(`ERROR: ${e?.message || e}`);
-    vscode.window.showErrorMessage(`GitHub Ext: ${e?.message || e}`);
+    showError(e);
   }
+}
+
+/* ---------- sidebar tree view ---------- */
+
+class TrackedItem extends vscode.TreeItem {
+  constructor(public readonly tracked: Tracked) {
+    super(tracked.displayName, vscode.TreeItemCollapsibleState.None);
+    const update = pendingUpdates.get(tracked.extId);
+    const installed = !!vscode.extensions.getExtension(tracked.extId);
+    this.id = tracked.extId;
+    this.description = update ? `${tracked.tag} → ${update.tag_name}` : tracked.tag;
+    this.contextValue = update ? 'ghext.tracked.update' : 'ghext.tracked';
+    if (update) {
+      this.iconPath = new vscode.ThemeIcon('arrow-circle-up', new vscode.ThemeColor('charts.green'));
+    } else if (!installed) {
+      this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
+    } else {
+      this.iconPath = new vscode.ThemeIcon('extensions');
+    }
+    const md = new vscode.MarkdownString(undefined, true);
+    md.appendMarkdown(`**${tracked.displayName}** \`${tracked.extId}\`\n\n`);
+    md.appendMarkdown(`Version ${tracked.version} · release \`${tracked.tag}\`\n\n`);
+    md.appendMarkdown(`Repo: [${tracked.repo}](https://github.com/${tracked.repo})\n\n`);
+    md.appendMarkdown(`Installed ${new Date(tracked.installedAt).toLocaleString()}`);
+    if (update) {
+      md.appendMarkdown(`\n\n$(arrow-circle-up) Update available: [${update.tag_name}](${update.html_url})`);
+    }
+    if (!installed) {
+      md.appendMarkdown(`\n\n$(warning) Not installed in this VS Code (or reload pending).`);
+    }
+    this.tooltip = md;
+  }
+}
+
+class TrackedTreeProvider implements vscode.TreeDataProvider<TrackedItem> {
+  private readonly emitter = new vscode.EventEmitter<void>();
+  readonly onDidChangeTreeData = this.emitter.event;
+
+  refresh(): void {
+    this.emitter.fire();
+  }
+  getTreeItem(item: TrackedItem): vscode.TreeItem {
+    return item;
+  }
+  getChildren(): TrackedItem[] {
+    return Object.values(getTracked())
+      .sort((a, b) => a.displayName.localeCompare(b.displayName))
+      .map(t => new TrackedItem(t));
+  }
+}
+
+function refreshView(): void {
+  if (!tree) {
+    return;
+  }
+  tree.refresh();
+  const n = pendingUpdates.size;
+  treeView.badge = n ? { value: n, tooltip: `${n} update(s) available` } : undefined;
+  vscode.commands.executeCommand('setContext', 'ghext.hasUpdates', n > 0);
 }
 
 /* ---------- lifecycle ---------- */
@@ -306,13 +419,24 @@ async function cmdList(): Promise<void> {
 export function activate(context: vscode.ExtensionContext): void {
   ctx = context;
   out = vscode.window.createOutputChannel('GitHub Extension Manager');
+  tree = new TrackedTreeProvider();
+  treeView = vscode.window.createTreeView('ghext.trackedView', { treeDataProvider: tree, showCollapseAll: false });
+  context.subscriptions.push(treeView);
   context.subscriptions.push(
     out,
     vscode.commands.registerCommand('ghext.install', cmdInstall),
     vscode.commands.registerCommand('ghext.checkUpdates', () => cmdCheckUpdates(false)),
     vscode.commands.registerCommand('ghext.updateAll', cmdUpdateAll),
-    vscode.commands.registerCommand('ghext.list', cmdList)
+    vscode.commands.registerCommand('ghext.list', cmdList),
+    vscode.commands.registerCommand('ghext.refresh', () => refreshView()),
+    vscode.commands.registerCommand('ghext.item.update', itemCommand(updateOne)),
+    vscode.commands.registerCommand('ghext.item.reinstall', itemCommand(reinstallOne)),
+    vscode.commands.registerCommand('ghext.item.openRepo', itemCommand(openRepo)),
+    vscode.commands.registerCommand('ghext.item.untrack', itemCommand(untrackOne)),
+    vscode.commands.registerCommand('ghext.item.uninstall', itemCommand(uninstallOne)),
+    vscode.extensions.onDidChange(() => refreshView())
   );
+  refreshView();
   if (cfg('checkOnStartup', true)) {
     // small delay so startup is not slowed down
     setTimeout(() => cmdCheckUpdates(true).catch(e => log(`startup check failed: ${e}`)), 8000);
