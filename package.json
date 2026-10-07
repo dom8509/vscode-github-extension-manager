@@ -1,0 +1,64 @@
+{
+  "name": "github-extension-manager",
+  "displayName": "GitHub Extension Manager (BRAT for VS Code)",
+  "description": "Install VS Code extensions directly from GitHub release URLs, check for updates and update them.",
+  "version": "0.1.0",
+  "publisher": "dom",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ghext.install",
+        "title": "GitHub Ext: Install from GitHub URL"
+      },
+      {
+        "command": "ghext.checkUpdates",
+        "title": "GitHub Ext: Check for Updates"
+      },
+      {
+        "command": "ghext.updateAll",
+        "title": "GitHub Ext: Update All"
+      },
+      {
+        "command": "ghext.list",
+        "title": "GitHub Ext: List / Manage Tracked Extensions"
+      }
+    ],
+    "configuration": {
+      "title": "GitHub Extension Manager",
+      "properties": {
+        "ghext.checkOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for updates when VS Code starts."
+        },
+        "ghext.includePrereleases": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also consider GitHub pre-releases when checking for updates."
+        },
+        "ghext.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "Optional GitHub personal access token (raises API rate limit, needed for private repos)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.4.0"
+  }
+}
