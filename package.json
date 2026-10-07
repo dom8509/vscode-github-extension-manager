@@ -5,30 +5,81 @@
   "version": "0.1.0",
   "publisher": "dom",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/dom8509/vscode-github-extension-manager.git" },
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dom8509/vscode-github-extension-manager.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "ghext.install",
-        "title": "GitHub Ext: Install from GitHub URL"
+        "title": "Install from GitHub URL",
+        "category": "GitHub Ext",
+        "icon": "$(add)"
       },
       {
         "command": "ghext.checkUpdates",
-        "title": "GitHub Ext: Check for Updates"
+        "title": "Check for Updates",
+        "category": "GitHub Ext",
+        "icon": "$(sync)"
       },
       {
         "command": "ghext.updateAll",
-        "title": "GitHub Ext: Update All"
+        "title": "Update All",
+        "category": "GitHub Ext",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "ghext.list",
-        "title": "GitHub Ext: List / Manage Tracked Extensions"
+        "title": "List / Manage Tracked Extensions",
+        "category": "GitHub Ext"
+      },
+      {
+        "command": "ghext.refresh",
+        "title": "Refresh",
+        "category": "GitHub Ext",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ghext.item.update",
+        "title": "Check & Update",
+        "category": "GitHub Ext",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "ghext.item.reinstall",
+        "title": "Reinstall Latest Release",
+        "category": "GitHub Ext",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "ghext.item.openRepo",
+        "title": "Open GitHub Releases",
+        "category": "GitHub Ext",
+        "icon": "$(github)"
+      },
+      {
+        "command": "ghext.item.untrack",
+        "title": "Stop Tracking (keep extension)",
+        "category": "GitHub Ext",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "ghext.item.uninstall",
+        "title": "Uninstall & Stop Tracking",
+        "category": "GitHub Ext",
+        "icon": "$(trash)"
       }
     ],
     "configuration": {
@@ -50,6 +101,97 @@
           "description": "Optional GitHub personal access token (raises API rate limit, needed for private repos)."
         }
       }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ghext",
+          "title": "GitHub Extensions",
+          "icon": "media/activitybar.svg"
+        }
+      ]
+    },
+    "views": {
+      "ghext": [
+        {
+          "id": "ghext.trackedView",
+          "name": "Tracked Extensions",
+          "icon": "media/activitybar.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "ghext.trackedView",
+        "contents": "No extensions tracked yet.\n[Install from GitHub URL](command:ghext.install)\nPaste a repo like `owner/repo`. Its latest GitHub release needs a .vsix file."
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ghext.install",
+          "when": "view == ghext.trackedView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ghext.checkUpdates",
+          "when": "view == ghext.trackedView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ghext.updateAll",
+          "when": "view == ghext.trackedView && ghext.hasUpdates",
+          "group": "navigation@3"
+        },
+        {
+          "command": "ghext.refresh",
+          "when": "view == ghext.trackedView",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ghext.item.update",
+          "when": "view == ghext.trackedView && viewItem =~ /^ghext\\.tracked/",
+          "group": "inline@1"
+        },
+        {
+          "command": "ghext.item.openRepo",
+          "when": "view == ghext.trackedView && viewItem =~ /^ghext\\.tracked/",
+          "group": "inline@2"
+        },
+        {
+          "command": "ghext.item.update",
+          "when": "view == ghext.trackedView && viewItem =~ /^ghext\\.tracked/",
+          "group": "1_update@1"
+        },
+        {
+          "command": "ghext.item.reinstall",
+          "when": "view == ghext.trackedView && viewItem =~ /^ghext\\.tracked/",
+          "group": "1_update@2"
+        },
+        {
+          "command": "ghext.item.openRepo",
+          "when": "view == ghext.trackedView && viewItem =~ /^ghext\\.tracked/",
+          "group": "2_open@1"
+        },
+        {
+          "command": "ghext.item.untrack",
+          "when": "view == ghext.trackedView && viewItem =~ /^ghext\\.tracked/",
+          "group": "3_remove@1"
+        },
+        {
+          "command": "ghext.item.uninstall",
+          "when": "view == ghext.trackedView && viewItem =~ /^ghext\\.tracked/",
+          "group": "3_remove@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "ghext.refresh",
+          "when": "false"
+        }
+      ]
     }
   },
   "scripts": {
