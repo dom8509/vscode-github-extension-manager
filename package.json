@@ -95,6 +95,11 @@
           "default": false,
           "description": "Also consider GitHub pre-releases when checking for updates."
         },
+        "ghext.selfUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Track the GitHub Extension Manager itself, so it updates from its own GitHub releases."
+        },
         "ghext.githubToken": {
           "type": "string",
           "default": "",

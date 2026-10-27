@@ -320,6 +320,10 @@ async function untrackOne(t: Tracked): Promise<void> {
   const all = getTracked();
   delete all[t.extId];
   await setTracked(all);
+  if (t.extId === ctx.extension.id.toLowerCase()) {
+    // otherwise it would be tracked again on next start
+    await vscode.workspace.getConfiguration('ghext').update('selfUpdate', false, vscode.ConfigurationTarget.Global);
+  }
   vscode.window.showInformationMessage(`${t.displayName} is no longer tracked.`);
 }
 
@@ -457,6 +461,37 @@ function refreshView(): void {
   vscode.commands.executeCommand('setContext', 'ghext.hasUpdates', n > 0);
 }
 
+/* ---------- self update ---------- */
+
+/** Track this extension itself, so it shows up in update checks like any other. */
+async function ensureSelfTracked(): Promise<void> {
+  if (!cfg('selfUpdate', true)) {
+    return;
+  }
+  const pkg = ctx.extension.packageJSON;
+  const ref = parseRepoUrl(pkg.repository?.url || '');
+  if (!ref) {
+    return;
+  }
+  const extId = ctx.extension.id.toLowerCase();
+  const all = getTracked();
+  const existing = all[extId];
+  if (existing && compareVersions(pkg.version, existing.version) <= 0) {
+    return;
+  }
+  // not tracked yet, or updated by other means: record the running version
+  all[extId] = {
+    extId,
+    displayName: pkg.displayName || extId,
+    repo: `${ref.owner}/${ref.repo}`,
+    tag: `v${pkg.version}`,
+    version: pkg.version,
+    assetName: existing?.assetName || '',
+    installedAt: existing?.installedAt || new Date().toISOString()
+  };
+  await setTracked(all);
+}
+
 /* ---------- lifecycle ---------- */
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -479,6 +514,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('ghext.item.uninstall', itemCommand(uninstallOne)),
     vscode.extensions.onDidChange(() => refreshView())
   );
+  ensureSelfTracked().catch(e => log(`self tracking failed: ${e}`));
   refreshView();
   if (cfg('checkOnStartup', true)) {
     // small delay so startup is not slowed down
