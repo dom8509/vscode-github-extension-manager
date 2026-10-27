@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2B3240"/>
+      <stop offset="1" stop-color="#161B22"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4FA3FF"/>
+      <stop offset="1" stop-color="#1F6FEB"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3FD47A"/>
+      <stop offset="1" stop-color="#1F9D55"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="51.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.08"/>
+  <!-- extension blocks -->
+  <rect x="44" y="132" width="76" height="76" rx="16" fill="#E6EDF3"/>
+  <rect x="136" y="132" width="76" height="76" rx="16" fill="url(#blue)"/>
+  <rect x="44" y="40" width="76" height="76" rx="16" fill="#E6EDF3"/>
+  <!-- release badge with download arrow -->
+  <circle cx="174" cy="78" r="46" fill="url(#green)"/>
+  <circle cx="174" cy="78" r="46" fill="none" stroke="#161B22" stroke-width="8"/>
+  <path d="M174 54v42M156 80l18 18 18-18" fill="none" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
