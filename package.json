@@ -2,7 +2,7 @@
   "name": "github-extension-manager",
   "displayName": "GitHub Extension Manager (BRAT for VS Code)",
   "description": "Install VS Code extensions directly from GitHub release URLs, check for updates and update them.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "dom",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -95,10 +95,15 @@
           "default": false,
           "description": "Also consider GitHub pre-releases when checking for updates."
         },
+        "ghext.selfUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Track the GitHub Extension Manager itself, so it updates from its own GitHub releases."
+        },
         "ghext.githubToken": {
           "type": "string",
           "default": "",
-          "description": "Optional GitHub personal access token (raises API rate limit, needed for private repos)."
+          "description": "Optional GitHub personal access token. If empty, your VS Code GitHub sign-in is used (raises API rate limit, needed for private repos)."
         }
       }
     },

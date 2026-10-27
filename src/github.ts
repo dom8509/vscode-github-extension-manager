@@ -68,8 +68,8 @@ export async function fetchLatestRelease(
   if (res.status === 404) {
     throw new Error(`Repo ${ref.owner}/${ref.repo} not found (or private without token).`);
   }
-  if (res.status === 403 || res.status === 429) {
-    throw new Error('GitHub API rate limit hit. Set a token in setting "ghext.githubToken".');
+  if (res.status === 429 || (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0')) {
+    throw new Error('GitHub API rate limit hit. Sign in with GitHub or set "ghext.githubToken".');
   }
   if (!res.ok) {
     throw new Error(`GitHub API error ${res.status} for ${ref.owner}/${ref.repo}`);

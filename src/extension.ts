@@ -33,9 +33,42 @@ const pendingUpdates = new Map<string, Release>();
 function cfg<T>(key: string, def: T): T {
   return vscode.workspace.getConfiguration('ghext').get<T>(key, def);
 }
-function token(): string | undefined {
+const AUTH_SCOPES = ['repo'];
+
+/** Token from the setting, else from VS Code's GitHub sign-in (if the user already signed in). */
+async function token(): Promise<string | undefined> {
   const t = cfg<string>('githubToken', '');
-  return t ? t : undefined;
+  if (t) {
+    return t;
+  }
+  try {
+    const session = await vscode.authentication.getSession('github', AUTH_SCOPES, { silent: true });
+    return session?.accessToken;
+  } catch {
+    return undefined;
+  }
+}
+
+/** On a rate limit error, offer to sign in with GitHub so later calls are authenticated. */
+async function offerSignIn(): Promise<void> {
+  const choice = await vscode.window.showWarningMessage(
+    'GitHub Ext: GitHub API rate limit hit. Sign in with GitHub to raise the limit.',
+    'Sign in with GitHub', 'Open Settings'
+  );
+  if (choice === 'Sign in with GitHub') {
+    try {
+      await vscode.authentication.getSession('github', AUTH_SCOPES, { createIfNone: true });
+      vscode.window.showInformationMessage('GitHub Ext: signed in. Try again.');
+    } catch (e: any) {
+      log(`sign-in failed: ${e?.message || e}`);
+    }
+  } else if (choice === 'Open Settings') {
+    vscode.commands.executeCommand('workbench.action.openSettings', 'ghext.githubToken');
+  }
+}
+
+function isRateLimit(msg: string): boolean {
+  return msg.includes('rate limit');
 }
 function getTracked(): Record<string, Tracked> {
   return ctx.globalState.get<Record<string, Tracked>>(STATE_KEY, {});
@@ -74,7 +107,7 @@ async function installRelease(ref: RepoRef, release: Release, progress?: vscode.
 
   progress?.report({ message: `Downloading ${asset.name}…` });
   log(`Downloading ${asset.browser_download_url}`);
-  const file = await downloadAsset(asset, token());
+  const file = await downloadAsset(asset, await token());
 
   const manifest = readVsixManifest(file);
   progress?.report({ message: `Installing ${manifest.displayName || manifest.id} ${manifest.version}…` });
@@ -122,7 +155,7 @@ async function cmdInstall(): Promise<void> {
       { location: vscode.ProgressLocation.Notification, title: `GitHub Ext: ${ref.owner}/${ref.repo}`, cancellable: false },
       async progress => {
         progress.report({ message: 'Looking up latest release…' });
-        const release = await fetchLatestRelease(ref, cfg('includePrereleases', false), token());
+        const release = await fetchLatestRelease(ref, cfg('includePrereleases', false), await token());
         if (!release) {
           throw new Error(`No releases found for ${ref.owner}/${ref.repo}.`);
         }
@@ -132,8 +165,7 @@ async function cmdInstall(): Promise<void> {
     vscode.window.showInformationMessage(`Installed ${tracked.displayName} ${tracked.version} (${tracked.tag}). Now tracked for updates.`);
   } catch (e: any) {
     if (e?.message !== 'Cancelled') {
-      log(`ERROR: ${e?.message || e}`);
-      vscode.window.showErrorMessage(`GitHub Ext: ${e?.message || e}`);
+      showError(e);
     }
   }
 }
@@ -145,7 +177,7 @@ async function findUpdates(): Promise<{ updates: UpdateInfo[]; errors: string[] 
   await Promise.all(tracked.map(async t => {
     const ref = parseRepoUrl(t.repo)!;
     try {
-      const release = await fetchLatestRelease(ref, cfg('includePrereleases', false), token());
+      const release = await fetchLatestRelease(ref, cfg('includePrereleases', false), await token());
       if (release && release.tag_name !== t.tag && compareVersions(release.tag_name, t.tag) > 0) {
         updates.push({ tracked: t, release });
         pendingUpdates.set(t.extId, release);
@@ -202,6 +234,9 @@ async function cmdCheckUpdates(silentIfNone: boolean): Promise<void> {
   }
   const { updates, errors } = await findUpdates();
   errors.forEach(e => log(`check error: ${e}`));
+  if (errors.some(isRateLimit)) {
+    offerSignIn();
+  }
   if (updates.length === 0) {
     if (!silentIfNone) {
       vscode.window.showInformationMessage(
@@ -231,6 +266,9 @@ async function cmdCheckUpdates(silentIfNone: boolean): Promise<void> {
 async function cmdUpdateAll(): Promise<void> {
   const { updates, errors } = await findUpdates();
   errors.forEach(e => log(`check error: ${e}`));
+  if (errors.some(isRateLimit)) {
+    offerSignIn();
+  }
   if (updates.length === 0) {
     vscode.window.showInformationMessage('GitHub Ext: everything is up to date.');
     return;
@@ -241,12 +279,17 @@ async function cmdUpdateAll(): Promise<void> {
 /* ---------- per-extension actions (used by tree view and quick pick) ---------- */
 
 function showError(e: any): void {
-  log(`ERROR: ${e?.message || e}`);
-  vscode.window.showErrorMessage(`GitHub Ext: ${e?.message || e}`);
+  const msg = `${e?.message || e}`;
+  log(`ERROR: ${msg}`);
+  if (isRateLimit(msg)) {
+    offerSignIn();
+  } else {
+    vscode.window.showErrorMessage(`GitHub Ext: ${msg}`);
+  }
 }
 
 async function updateOne(t: Tracked): Promise<void> {
-  const release = await fetchLatestRelease(parseRepoUrl(t.repo)!, cfg('includePrereleases', false), token());
+  const release = await fetchLatestRelease(parseRepoUrl(t.repo)!, cfg('includePrereleases', false), await token());
   if (!release || compareVersions(release.tag_name, t.tag) <= 0) {
     pendingUpdates.delete(t.extId);
     refreshView();
@@ -258,7 +301,7 @@ async function updateOne(t: Tracked): Promise<void> {
 
 async function reinstallOne(t: Tracked): Promise<void> {
   const ref = parseRepoUrl(t.repo)!;
-  const release = await fetchLatestRelease(ref, cfg('includePrereleases', false), token());
+  const release = await fetchLatestRelease(ref, cfg('includePrereleases', false), await token());
   if (!release) {
     throw new Error('No release found.');
   }
@@ -277,6 +320,10 @@ async function untrackOne(t: Tracked): Promise<void> {
   const all = getTracked();
   delete all[t.extId];
   await setTracked(all);
+  if (t.extId === ctx.extension.id.toLowerCase()) {
+    // otherwise it would be tracked again on next start
+    await vscode.workspace.getConfiguration('ghext').update('selfUpdate', false, vscode.ConfigurationTarget.Global);
+  }
   vscode.window.showInformationMessage(`${t.displayName} is no longer tracked.`);
 }
 
@@ -414,6 +461,37 @@ function refreshView(): void {
   vscode.commands.executeCommand('setContext', 'ghext.hasUpdates', n > 0);
 }
 
+/* ---------- self update ---------- */
+
+/** Track this extension itself, so it shows up in update checks like any other. */
+async function ensureSelfTracked(): Promise<void> {
+  if (!cfg('selfUpdate', true)) {
+    return;
+  }
+  const pkg = ctx.extension.packageJSON;
+  const ref = parseRepoUrl(pkg.repository?.url || '');
+  if (!ref) {
+    return;
+  }
+  const extId = ctx.extension.id.toLowerCase();
+  const all = getTracked();
+  const existing = all[extId];
+  if (existing && compareVersions(pkg.version, existing.version) <= 0) {
+    return;
+  }
+  // not tracked yet, or updated by other means: record the running version
+  all[extId] = {
+    extId,
+    displayName: pkg.displayName || extId,
+    repo: `${ref.owner}/${ref.repo}`,
+    tag: `v${pkg.version}`,
+    version: pkg.version,
+    assetName: existing?.assetName || '',
+    installedAt: existing?.installedAt || new Date().toISOString()
+  };
+  await setTracked(all);
+}
+
 /* ---------- lifecycle ---------- */
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -436,6 +514,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('ghext.item.uninstall', itemCommand(uninstallOne)),
     vscode.extensions.onDidChange(() => refreshView())
   );
+  ensureSelfTracked().catch(e => log(`self tracking failed: ${e}`));
   refreshView();
   if (cfg('checkOnStartup', true)) {
     // small delay so startup is not slowed down
