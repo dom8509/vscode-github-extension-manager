@@ -98,7 +98,7 @@
         "ghext.githubToken": {
           "type": "string",
           "default": "",
-          "description": "Optional GitHub personal access token (raises API rate limit, needed for private repos)."
+          "description": "Optional GitHub personal access token. If empty, your VS Code GitHub sign-in is used (raises API rate limit, needed for private repos)."
         }
       }
     },
