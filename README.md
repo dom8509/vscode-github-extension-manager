@@ -28,13 +28,23 @@ Updates are also checked automatically ~8 s after VS Code starts (setting `ghext
 
 - `ghext.checkOnStartup` (default `true`) – check for updates on startup.
 - `ghext.includePrereleases` (default `false`) – also take GitHub pre-releases.
-- `ghext.githubToken` – optional personal access token. Needed for private repos and to avoid the 60 requests/hour API limit.
+- `ghext.selfUpdate` (default `true`) – track this extension itself, so it updates from its own releases.
+- `ghext.githubToken` – optional personal access token. If empty, your VS Code GitHub sign-in is used. Needed for private repos and to avoid the 60 requests/hour API limit.
 
 ## Install this extension
 
+1. Download the `.vsix` from the [latest release](https://github.com/dom8509/vscode-github-extension-manager/releases/latest).
+2. Install it:
+
 ```
-code --install-extension github-extension-manager-0.1.0.vsix
+code --install-extension github-extension-manager-<version>.vsix
 ```
+
+After that, it updates itself.
+
+## Release
+
+Push a tag like `v1.2.3`. The release workflow sets the version in `package.json` from the tag, builds the `.vsix` and attaches it to a GitHub release.
 
 ## Build from source
 
