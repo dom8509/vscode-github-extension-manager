@@ -2,7 +2,7 @@
   "name": "github-extension-manager",
   "displayName": "GitHub Extension Manager (BRAT for VS Code)",
   "description": "Install VS Code extensions directly from GitHub release URLs, check for updates and update them.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "dom",
   "license": "MIT",
   "icon": "media/icon.png",
